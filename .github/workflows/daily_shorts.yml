@@ -2,9 +2,9 @@ name: Daily YouTube Shorts
 
 on:
   schedule:
-    - cron: '30 2 * * *'   # \~8:00 AM IST
-    - cron: '30 12 * * *'  # \~6:00 PM IST
-  workflow_dispatch:       # allows manual run
+    - cron: '30 2 * * *'    # ~8:00 AM IST
+    - cron: '30 12 * * *'   # ~6:00 PM IST
+  workflow_dispatch:
 
 jobs:
   upload-short:
@@ -20,8 +20,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y imagemagick ghostscript ffmpeg
-          # Fix ImageMagick policy for MoviePy TextClip
+          sudo apt-get install -y imagemagick ghostscript ffmpeg fonts-liberation
           sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- & -->/' /etc/ImageMagick-6/policy.xml || true
           sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- & -->/' /etc/ImageMagick-7/policy.xml || true
 
@@ -33,4 +32,6 @@ jobs:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python main.py
+        
