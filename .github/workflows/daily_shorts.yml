@@ -1,30 +1,36 @@
 name: Daily YouTube Shorts
-on:
-schedule:
-- cron: '30 2 * * *'    # ~8:00 AM IST
-- cron: '30 12 * * *'   # ~6:00 PM IST
-workflow_dispatch:
-jobs:
-upload-short:
-runs-on: ubuntu-latest
-steps:
-- uses: actions/checkout@v4
-- name: Set up Python
-uses: actions/setup-python@v5
-with:
-python-version: '3.10'
-- name: Install system dependencies
-run: |
-sudo apt-get update
-sudo apt-get install -y imagemagick ghostscript ffmpeg
-sudo sed -i 's/<policy domain="path" rights="none" pattern="@*"/<!-- & -->/' /etc/ImageMagick-6/policy.xml || true
-sudo sed -i 's/<policy domain="path" rights="none" pattern="@*"/<!-- & -->/' /etc/ImageMagick-7/policy.xml || true
-- name: Install Python dependencies
-run: pip install -r requirements.txt
-- name: Run the bot
-env:
-YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
-YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
-YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
-run: python main.py
 
+on:
+  schedule:
+    - cron: '30 2 * * *'   # \~8:00 AM IST
+    - cron: '30 12 * * *'  # \~6:00 PM IST
+  workflow_dispatch:       # allows manual run
+
+jobs:
+  upload-short:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick ghostscript ffmpeg
+          # Fix ImageMagick policy for MoviePy TextClip
+          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- & -->/' /etc/ImageMagick-6/policy.xml || true
+          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- & -->/' /etc/ImageMagick-7/policy.xml || true
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the bot
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: python main.py
