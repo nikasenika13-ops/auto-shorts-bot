@@ -29,12 +29,12 @@ def get_youtube_service():
     return build("youtube", "v3", credentials=creds)
 
 def get_trending_data(youtube):
-    print("Fetching trending videos...")
+    print("Fetching trending videos in India...")
     try:
         request = youtube.videos().list(
             part="snippet,statistics",
             chart="mostPopular",
-            regionCode="US", 
+            regionCode="IN", 
             maxResults=5
         )
         response = request.execute()
@@ -51,13 +51,11 @@ def get_trending_data(youtube):
         return title, hashtags, category_id
     except HttpError as e:
         print(f"YouTube API Error while fetching trending data: {e}")
-        # Fallback data if API quota is exceeded
         return "Shocking Facts You Didn't Know", ["#facts", "#trending", "#viral"], "24"
 
 def generate_ai_background(topic):
     print(f"Asking AI to generate a video for: {topic}...")
     
-    # Using Replicate's Official Model which is always warm and stable
     output = replicate.run(
         "minimax/video-01",
         input={
@@ -68,7 +66,6 @@ def generate_ai_background(topic):
     video_url = str(output)
     print(f"AI Video generated successfully! Downloading from {video_url}...")
     
-    # Added timeout to prevent GitHub Action hanging forever
     video_data = requests.get(video_url, timeout=60).content
     bg_filename = "ai_background.mp4"
     with open(bg_filename, "wb") as f:
@@ -77,7 +74,7 @@ def generate_ai_background(topic):
     return bg_filename
 
 async def generate_voice(text, filename="voice.mp3"):
-    communicate = edge_tts.Communicate(text, "en-US-ChristopherNeural")
+    communicate = edge_tts.Communicate(text, "en-IN-PrabhatNeural")
     await communicate.save(filename)
     return filename
 
@@ -145,7 +142,6 @@ def upload_video(youtube, video_file, title, hashtags, category_id):
     retries = 0
     max_retries = 5
 
-    # Robust upload loop to handle GitHub Actions network drops
     while response is None:
         try:
             status, response = request.next_chunk()
@@ -172,4 +168,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Critical Error: {e}")
         exit(1)
-        
+    
