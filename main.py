@@ -1,9 +1,13 @@
 import os
+import time
 import asyncio
 import requests
+import replicate
 from moviepy.editor import *
+import moviepy.video.fx.all as vfx
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 import edge_tts
@@ -26,40 +30,47 @@ def get_youtube_service():
 
 def get_trending_data(youtube):
     print("Fetching trending videos...")
-    request = youtube.videos().list(
-        part="snippet,statistics",
-        chart="mostPopular",
-        regionCode="US", 
-        maxResults=5
-    )
-    response = request.execute()
-    
-    top_video = response['items'][0]['snippet']
-    title = top_video['title']
-    
-    tags = top_video.get('tags', [])
-    hashtags = [f"#{tag.replace(' ', '')}" for tag in tags[:3]]
-    if len(hashtags) < 3:
-        hashtags.extend(["#trending", "#viral", "#shorts"][:3 - len(hashtags)])
+    try:
+        request = youtube.videos().list(
+            part="snippet,statistics",
+            chart="mostPopular",
+            regionCode="US", 
+            maxResults=5
+        )
+        response = request.execute()
         
-    category_id = top_video.get('categoryId', '24')
-    
-    return title, hashtags, category_id
+        top_video = response['items'][0]['snippet']
+        title = top_video['title']
+        
+        tags = top_video.get('tags', [])
+        hashtags = [f"#{tag.replace(' ', '')}" for tag in tags[:3]]
+        if len(hashtags) < 3:
+            hashtags.extend(["#trending", "#viral", "#shorts"][:3 - len(hashtags)])
+            
+        category_id = top_video.get('categoryId', '24')
+        return title, hashtags, category_id
+    except HttpError as e:
+        print(f"YouTube API Error while fetching trending data: {e}")
+        # Fallback data if API quota is exceeded
+        return "Shocking Facts You Didn't Know", ["#facts", "#trending", "#viral"], "24"
 
-def download_background_video(query="abstract background"):
-    print("Downloading background video from Pexels...")
-    api_key = os.environ.get("PEXELS_API_KEY")
-    headers = {"Authorization": api_key}
-    url = f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=1"
+def generate_ai_background(topic):
+    print(f"Asking AI to generate a video for: {topic}...")
     
-    response = requests.get(url, headers=headers).json()
-    if 'videos' not in response or not response['videos']:
-        raise Exception("No video found on Pexels.")
-        
-    video_url = response['videos'][0]['video_files'][0]['link']
+    # Using Replicate's Official Model which is always warm and stable
+    output = replicate.run(
+        "minimax/video-01",
+        input={
+            "prompt": f"Cinematic, vertical 9:16 aspect ratio, smooth continuous motion, beautiful abstract background representing the topic: {topic}"
+        }
+    )
     
-    video_data = requests.get(video_url).content
-    bg_filename = "background.mp4"
+    video_url = str(output)
+    print(f"AI Video generated successfully! Downloading from {video_url}...")
+    
+    # Added timeout to prevent GitHub Action hanging forever
+    video_data = requests.get(video_url, timeout=60).content
+    bg_filename = "ai_background.mp4"
     with open(bg_filename, "wb") as f:
         f.write(video_data)
         
@@ -76,11 +87,14 @@ def generate_short(trending_title):
     script = f"Trending now! Everyone is watching: {trending_title}. Make sure you don't miss out on the most popular video today!"
     asyncio.run(generate_voice(script))
     
-    bg_path = download_background_video(query="abstract motion")
+    bg_path = generate_ai_background(trending_title)
     
-    background = VideoFileClip(bg_path).resize((1080, 1920))
     audio = AudioFileClip("voice.mp3")
+    background = VideoFileClip(bg_path).resize((1080, 1920))
     
+    if background.duration < audio.duration:
+        background = background.fx(vfx.loop, duration=audio.duration + 1)
+        
     duration = min(audio.duration + 1, background.duration)
     background = background.subclip(0, duration)
     
@@ -124,14 +138,26 @@ def upload_video(youtube, video_file, title, hashtags, category_id):
         }
     }
 
-    media = MediaFileUpload(video_file, chunksize=-1, resumable=True, mimetype="video/mp4")
+    media = MediaFileUpload(video_file, chunksize=1024*1024, resumable=True, mimetype="video/mp4")
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
 
     response = None
+    retries = 0
+    max_retries = 5
+
+    # Robust upload loop to handle GitHub Actions network drops
     while response is None:
-        status, response = request.next_chunk()
-        if status:
-            print(f"Uploaded {int(status.progress() * 100)}%")
+        try:
+            status, response = request.next_chunk()
+            if status:
+                print(f"Uploaded {int(status.progress() * 100)}%")
+        except (HttpError, Exception) as e:
+            if retries >= max_retries:
+                raise Exception(f"Upload failed after {max_retries} retries: {e}")
+            retries += 1
+            sleep_time = 2 ** retries
+            print(f"Network error: {e}. Retrying in {sleep_time} seconds...")
+            time.sleep(sleep_time)
 
     print(f"Upload complete! Video ID: {response['id']}")
     return response['id']
@@ -144,6 +170,6 @@ if __name__ == "__main__":
         upload_video(youtube, video_path, title, hashtags, category_id)
         print("Success!")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Critical Error: {e}")
         exit(1)
         
