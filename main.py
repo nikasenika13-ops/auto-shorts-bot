@@ -3,16 +3,14 @@ import time
 import asyncio
 import requests
 import random
-import shutil
+import urllib.parse
 from moviepy.editor import *
-import moviepy.video.fx.all as vfx
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 import edge_tts
-from gradio_client import Client
 
 def get_youtube_service():
     creds = Credentials(
@@ -41,7 +39,6 @@ def get_trending_data(youtube):
         )
         response = request.execute()
         
-        # Pick a random video from the top 5 to avoid uploading the exact same video twice a day
         selected_item = random.choice(response['items'])
         top_video = selected_item['snippet']
         title = top_video['title']
@@ -54,32 +51,22 @@ def get_trending_data(youtube):
         category_id = top_video.get('categoryId', '24')
         return title, hashtags, category_id
     except HttpError as e:
-        print(f"YouTube API Error while fetching trending data: {e}")
-        return "Shocking Facts You Didn't Know", ["#facts", "#trending", "#viral"], "24"
+        print(f"YouTube API Error: {e}")
+        return "Top Trending Topic In India", ["#trending", "#viral", "#shorts"], "24"
 
-def generate_ai_background(topic):
-    print(f"Asking Hugging Face AI to generate a video for: {topic}...")
+def generate_ai_visual(topic):
+    print(f"Generating free AI visual for: {topic}...")
+    prompt = f"Cinematic vertical 9:16 background, dramatic lighting, 8k wallpaper representing: {topic}"
+    encoded_prompt = urllib.parse.quote(prompt)
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1920&nologo=true"
     
-    client = Client("Lightricks/LTX-Video")
-    prompt = f"Cinematic, vertical 9:16 aspect ratio, smooth continuous motion, beautiful abstract background representing the topic: {topic}"
-    
-    result = client.predict(
-        prompt=prompt,
-        negative_prompt="worst quality, static, blurry",
-        width=768,
-        height=512,
-        num_frames=161,
-        decode_timestep=0.03,
-        decode_noise_scale=0.025,
-        num_inference_steps=50,
-        api_name="/predict"
-    )
-    
-    bg_filename = "ai_background.mp4"
-    shutil.copy(result, bg_filename)
-    
-    print("AI Video generated successfully via Hugging Face!")
-    return bg_filename
+    response = requests.get(image_url, timeout=60)
+    img_filename = "ai_frame.jpg"
+    with open(img_filename, "wb") as f:
+        f.write(response.content)
+        
+    print("AI Visual generated successfully!")
+    return img_filename
 
 async def generate_voice(text, filename="voice.mp3"):
     communicate = edge_tts.Communicate(text, "en-IN-PrabhatNeural")
@@ -89,19 +76,17 @@ async def generate_voice(text, filename="voice.mp3"):
 def generate_short(trending_title):
     print("Generating Short...")
     
-    script = f"Trending now! Everyone is watching: {trending_title}. Make sure you don't miss out on the most popular video today!"
+    script = f"Trending now in India! Everyone is watching: {trending_title}. Don't miss out on today's most popular video!"
     asyncio.run(generate_voice(script))
     
-    bg_path = generate_ai_background(trending_title)
-    
+    img_path = generate_ai_visual(trending_title)
     audio = AudioFileClip("voice.mp3")
-    background = VideoFileClip(bg_path).resize((1080, 1920))
+    duration = audio.duration + 1
     
-    if background.duration < audio.duration:
-        background = background.fx(vfx.loop, duration=audio.duration + 1)
-        
-    duration = min(audio.duration + 1, background.duration)
-    background = background.subclip(0, duration)
+    # Creates smooth cinematic camera zoom motion on the AI background
+    raw_clip = ImageClip(img_path).set_duration(duration)
+    animated_bg = raw_clip.resize(lambda t: 1 + 0.03 * t).set_position(('center', 'center'))
+    background = CompositeVideoClip([animated_bg], size=(1080, 1920)).set_duration(duration)
     
     text_clip = TextClip(
         trending_title,
@@ -160,7 +145,7 @@ def upload_video(youtube, video_file, title, hashtags, category_id):
                 raise Exception(f"Upload failed after {max_retries} retries: {e}")
             retries += 1
             sleep_time = 2 ** retries
-            print(f"Network error: {e}. Retrying in {sleep_time} seconds...")
+            print(f"Retrying upload in {sleep_time}s...")
             time.sleep(sleep_time)
 
     print(f"Upload complete! Video ID: {response['id']}")
