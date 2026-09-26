@@ -2,7 +2,8 @@ import os
 import time
 import asyncio
 import requests
-import replicate
+import random
+import shutil
 from moviepy.editor import *
 import moviepy.video.fx.all as vfx
 from googleapiclient.discovery import build
@@ -11,6 +12,7 @@ from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 import edge_tts
+from gradio_client import Client
 
 def get_youtube_service():
     creds = Credentials(
@@ -39,7 +41,9 @@ def get_trending_data(youtube):
         )
         response = request.execute()
         
-        top_video = response['items'][0]['snippet']
+        # Pick a random video from the top 5 to avoid uploading the exact same video twice a day
+        selected_item = random.choice(response['items'])
+        top_video = selected_item['snippet']
         title = top_video['title']
         
         tags = top_video.get('tags', [])
@@ -54,23 +58,27 @@ def get_trending_data(youtube):
         return "Shocking Facts You Didn't Know", ["#facts", "#trending", "#viral"], "24"
 
 def generate_ai_background(topic):
-    print(f"Asking AI to generate a video for: {topic}...")
+    print(f"Asking Hugging Face AI to generate a video for: {topic}...")
     
-    output = replicate.run(
-        "minimax/video-01",
-        input={
-            "prompt": f"Cinematic, vertical 9:16 aspect ratio, smooth continuous motion, beautiful abstract background representing the topic: {topic}"
-        }
+    client = Client("Lightricks/LTX-Video")
+    prompt = f"Cinematic, vertical 9:16 aspect ratio, smooth continuous motion, beautiful abstract background representing the topic: {topic}"
+    
+    result = client.predict(
+        prompt=prompt,
+        negative_prompt="worst quality, static, blurry",
+        width=768,
+        height=512,
+        num_frames=161,
+        decode_timestep=0.03,
+        decode_noise_scale=0.025,
+        num_inference_steps=50,
+        api_name="/predict"
     )
     
-    video_url = str(output)
-    print(f"AI Video generated successfully! Downloading from {video_url}...")
-    
-    video_data = requests.get(video_url, timeout=60).content
     bg_filename = "ai_background.mp4"
-    with open(bg_filename, "wb") as f:
-        f.write(video_data)
-        
+    shutil.copy(result, bg_filename)
+    
+    print("AI Video generated successfully via Hugging Face!")
     return bg_filename
 
 async def generate_voice(text, filename="voice.mp3"):
@@ -168,4 +176,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Critical Error: {e}")
         exit(1)
-    
+        
